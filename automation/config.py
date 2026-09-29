@@ -2,7 +2,7 @@
 Cisco NAMP — FastAPI Automation Service Configuration
 """
 import os
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -19,8 +19,7 @@ class Settings(BaseSettings):
     ssh_timeout: int = 30
     ssh_conn_timeout: int = 15
 
-    class Config:
-        env_file = ".env"
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
 settings = Settings()

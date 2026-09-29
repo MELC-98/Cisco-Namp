@@ -17,6 +17,95 @@ from services.parsers.show_inventory import parse_show_inventory
 
 logger = logging.getLogger(__name__)
 
+# --- MOCK SIMULATION ---
+def is_mock_ip(host: str) -> bool:
+    """Return True if the IP belongs to the simulated environment (FMPTangerSeeder)."""
+    return host.startswith("10.99.") or host.startswith("192.168.99.") or host.startswith("172.16.99.")
+
+def generate_mock_hostname(host: str) -> str:
+    mapping = {
+        "192.168.99.1": "FW-Sophos-XGS4300",
+        "192.168.99.2": "Core-Catalyst-4507",
+        "192.168.99.3": "SW-Serveur-2",
+        "192.168.99.4": "SW-Biblio-1",
+        "192.168.99.100": "AP-Biblio-1",
+        "192.168.99.101": "AP-Admin-1",
+        "192.168.99.102": "AP-Amphi-1",
+        "10.99.2.1": "ACC-SW-01",
+    }
+    if host in mapping:
+        return mapping[host]
+    octet = host.split(".")[-1]
+    return f"SW-{octet}"
+
+def get_mock_show_command(command: str, host: str) -> Dict[str, Any]:
+    cmd = command.strip().lower()
+    output = ""
+    hostname = generate_mock_hostname(host)
+    
+    if "show vlan" in cmd:
+        output = """VLAN Name                             Status    Ports
+---- -------------------------------- --------- -------------------------------
+1    default                          active    Gi0/1, Gi0/2, Gi0/3
+10   Management                       active    
+20   Guest_WiFi                       active    Gi0/4
+30   IoT_Devices                      active    Gi0/5
+99   Native                           active    """
+    elif "show ip interface brief" in cmd:
+        output = f"""Interface              IP-Address      OK? Method Status                Protocol
+GigabitEthernet0/0     {host}     YES NVRAM  up                    up      
+GigabitEthernet0/1     unassigned      YES NVRAM  up                    up      
+GigabitEthernet0/2     unassigned      YES NVRAM  administratively down down    """
+    elif "show interfaces" in cmd:
+        output = f"""GigabitEthernet0/0 is up, line protocol is up 
+  Hardware is Gigabit Ethernet, address is 0011.2233.4455 (bia 0011.2233.4455)
+  Description: Uplink to Core
+  MTU 1500 bytes, BW 1000000 Kbit/sec, DLY 10 usec, 
+  Full-duplex, 1000Mb/s, media type is 10/100/1000BaseTX
+GigabitEthernet0/1 is up, line protocol is up 
+  Hardware is Gigabit Ethernet, address is 0011.2233.4456 (bia 0011.2233.4456)
+  Description: Access Port
+  MTU 1500 bytes, BW 1000000 Kbit/sec, DLY 10 usec, 
+  Full-duplex, 1000Mb/s, media type is 10/100/1000BaseTX
+GigabitEthernet0/2 is administratively down, line protocol is down 
+  Hardware is Gigabit Ethernet, address is 0011.2233.4457 (bia 0011.2233.4457)
+  MTU 1500 bytes, BW 1000000 Kbit/sec, DLY 10 usec, 
+  Auto-duplex, Auto-speed, media type is 10/100/1000BaseTX"""
+    elif "show running-config" in cmd:
+        output = f"""!
+version 15.2
+hostname {hostname}
+!
+interface GigabitEthernet0/0
+ description Uplink to Core
+ ip address {host} 255.255.255.0
+!
+interface GigabitEthernet0/1
+ description Access Port
+ switchport mode access
+ switchport access vlan 10
+!
+interface GigabitEthernet0/2
+ shutdown
+!
+end"""
+    elif "show version" in cmd:
+        output = """Cisco IOS Software, C2960X Software (C2960X-UNIVERSALK9-M), Version 15.2(7)E7, RELEASE SOFTWARE (fc2)
+Compiled Tue 14-Sep-21 17:34 by mcpre
+ROM: Bootstrap program is C2960X boot loader
+uptime is 4 weeks, 2 days, 3 hours, 4 minutes"""
+    elif "show inventory" in cmd:
+        output = """NAME: "1", DESCR: "WS-C2960X-48FPD-L"
+PID: WS-C2960X-48FPD-L , VID: V04  , SN: FDO2134V1AB"""
+    else:
+        output = f"Mock output for '{command}' on {host}\n(This is a simulated device)"
+
+    return {
+        "command": command,
+        "output": output,
+        "success": True
+    }
+# -----------------------
 
 def _build_device_params(host: str, port: int, username: str, password: str,
                           device_type: str, enable_secret: Optional[str] = None) -> Dict[str, Any]:
@@ -74,6 +163,14 @@ def test_connection(host: str, port: int, username: str, password: str,
     """
     start_time = time.time()
 
+    if is_mock_ip(host):
+        time.sleep(0.5)
+        return {
+            "success": True,
+            "message": "Connection successful (Mock)",
+            "response_time_ms": 500.0,
+        }
+
     try:
         conn = connect_device(host, port, username, password, device_type, enable_secret)
         # Send a simple command to verify the connection
@@ -100,6 +197,15 @@ def get_device_facts(host: str, port: int, username: str, password: str,
     """
     Discover device facts using show version and show inventory.
     """
+    if is_mock_ip(host):
+        time.sleep(0.5)
+        return {
+            "os_name": "Cisco IOS",
+            "os_version": "15.2(7)E7",
+            "serial_number": "FDO2134V1AB",
+            "model": "WS-C2960X-48FPD-L"
+        }
+
     conn = connect_device(host, port, username, password, device_type, enable_secret)
 
     try:
@@ -129,6 +235,14 @@ def get_interfaces(host: str, port: int, username: str, password: str,
     """
     Retrieve interface information from a device.
     """
+    if is_mock_ip(host):
+        time.sleep(0.5)
+        return [
+            {"name": "GigabitEthernet0/0", "ip_address": host, "admin_status": "up", "oper_status": "up", "description": "Uplink to Core", "mac_address": "0011.2233.4455", "speed": "1000", "duplex": "full"},
+            {"name": "GigabitEthernet0/1", "ip_address": None, "admin_status": "up", "oper_status": "up", "description": "Access Port", "mac_address": "0011.2233.4456", "speed": "1000", "duplex": "full"},
+            {"name": "GigabitEthernet0/2", "ip_address": None, "admin_status": "down", "oper_status": "down", "description": None, "mac_address": "0011.2233.4457", "speed": "auto", "duplex": "auto"},
+        ]
+
     conn = connect_device(host, port, username, password, device_type, enable_secret)
 
     try:
@@ -167,6 +281,10 @@ def run_show_command(host: str, port: int, username: str, password: str,
                 "error": "Configuration commands are blocked",
             }
 
+    if is_mock_ip(host):
+        time.sleep(0.5)
+        return get_mock_show_command(command, host)
+
     conn = connect_device(host, port, username, password, device_type, enable_secret)
 
     try:
@@ -194,6 +312,15 @@ def backup_running_config(host: str, port: int, username: str, password: str,
     """
     Retrieve the running-config from a device.
     """
+    if is_mock_ip(host):
+        time.sleep(0.5)
+        config = get_mock_show_command("show running-config", host)["output"]
+        return {
+            "config": config,
+            "success": True,
+            "size": len(config),
+        }
+
     conn = connect_device(host, port, username, password, device_type, enable_secret)
 
     try:
@@ -222,6 +349,15 @@ def configure_interface(host: str, port: int, username: str, password: str,
     Apply configuration lines to a device.
     Uses Netmiko's send_config_set for safe configuration delivery.
     """
+    if is_mock_ip(host):
+        time.sleep(1)
+        return {
+            "success": True,
+            "message": "Configuration applied successfully (Mock)",
+            "output": "\\n".join(config_lines),
+            "verification": "Mock verification successful",
+        }
+
     conn = connect_device(host, port, username, password, device_type, enable_secret)
 
     try:
@@ -270,6 +406,15 @@ def deploy_raw_config(host: str, port: int, username: str, password: str,
     Apply raw configuration lines to a device.
     Uses Netmiko's send_config_set for safe configuration delivery.
     """
+    if is_mock_ip(host):
+        time.sleep(1)
+        return {
+            "success": True,
+            "message": "Raw configuration applied successfully (Mock)",
+            "output": "\\n".join(config_lines),
+            "verification": "Mock verification successful",
+        }
+
     conn = connect_device(host, port, username, password, device_type, enable_secret)
 
     try:
